@@ -44,7 +44,7 @@ spec:
           script: |
             #!/usr/bin/env bash
             jx step tag --version $(cat VERSION)
-        - image: gcr.io/jenkinsxio/jx-cli:latest
+        - image: gcr.io/jenkinsxio/jx-gitops:0.0.0-SNAPSHOT-PR-333-1
           name: jx-variables
           resources: {}
           script: |
