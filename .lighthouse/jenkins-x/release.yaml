@@ -2,8 +2,7 @@ apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
   annotations:
-    lighthouse.jenkins-x.io/prependStepsURL: https://raw.githubusercontent.com/jenkins-x/jx3-pipeline-catalog/4a22dee8a67f66e5012729808de081d2f4d0e715/tasks/git-clone/git-clone.yaml
-  creationTimestamp: null
+    lighthouse.jenkins-x.io/prependStepsURL: https://raw.githubusercontent.com/jenkins-x/jx3-pipeline-catalog/005e78cf69b643862344397a635736a51dd1bd89/tasks/git-clone/git-clone.yaml
   name: release
 spec:
   pipelineSpec:
@@ -19,92 +18,80 @@ spec:
               cpu: 400m
               memory: 512Mi
           volumeMounts:
-          - mountPath: /home/jenkins
-            name: workspace-volume
-          - mountPath: /etc/podinfo
-            name: podinfo
-            readOnly: true
+          - name: npmrc
+            mountPath: /builder/home/.npmrc
+            key: file
           workingDir: /workspace/source
         steps:
-        - image: gcr.io/jenkinsxio/builder-go
+        - image: gcr.io/jenkinsxio/jx-release-version:1.0.42
           name: next-version
           resources: {}
           script: |
             #!/usr/bin/env bash
-            jx step next-version --filename package.json
-        - image: gcr.io/jenkinsxio/builder-go
-          name: update-version
-          resources: {}
-          script: |
-            #!/usr/bin/env bash
-            jx step tag --version $(cat VERSION) --no-apply
-        - image: gcr.io/jenkinsxio/builder-go
-          name: tag-version
-          resources: {}
-          script: |
-            #!/usr/bin/env bash
-            jx step tag --version $(cat VERSION)
-        - image: gcr.io/jenkinsxio/jx-gitops:0.0.0-SNAPSHOT-PR-333-1
+            VERSION=$(jx-release-version)
+            echo $VERSION > VERSION
+        - image: gcr.io/jenkinsxio/jx-boot:3.0.755
           name: jx-variables
           resources: {}
           script: |
-            #!/usr/bin/env bash
+            #!/usr/bin/env sh
             jx gitops variables
-        - image: gcr.io/jenkinsxio/builder-nodejs:2.1.150-769
-          name: build-npmrc
-          resources: {}
-          script: |
-            #!/usr/bin/env bash
-            jx step credential -s npm-token -k file -f /builder/home/.npmrc --optional=true
-        - image: gcr.io/jenkinsxio/builder-nodejs:2.1.150-769
+        - image: node:9-slim
           name: build-npm-install
           resources: {}
           script: |
             #!/bin/sh
             npm install
-        - image: gcr.io/jenkinsxio/builder-nodejs:2.1.150-769
+        - image: node:9-slim
           name: build-npm-test
           resources: {}
           script: |
             #!/bin/sh
             CI=true DISPLAY=:99 npm test
-        - image: gcr.io/kaniko-project/executor:debug-1d1298564878f2a57d8f77b4269c66c6e2d9bb6b
+        - image: gcr.io/kaniko-project/executor:debug-v1.3.0
           name: build-container-build
           resources: {}
           script: |
             #!/busybox/sh
             source .jx/variables.sh
             cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json
-            /kaniko/executor $KANIKO_FLAGS --cache=true --cache-dir=/workspace --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION --cache-repo=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/cache
-        - image: gcr.io/jenkinsxio/builder-go:2.1.142-761
+            /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION
+        - image: gcr.io/jenkinsxio/jx-changelog:0.0.1
           name: promote-changelog
           resources: {}
           script: |
             #!/bin/bash
             source /workspace/source/.jx/variables.sh
-            jx step changelog --batch-mode --version v${VERSION}
-        - image: gcr.io/jenkinsxio/jx-cli:latest
+
+            if [ -d "/workspace/source/charts/$REPO_NAME" ]; then
+            sed -i -e "s/version:.*/version: $VERSION/" ./charts/$REPO_NAME/Chart.yaml
+            sed -i -e "s/repository:.*/repository: $DOCKER_REGISTRY\/$DOCKER_REGISTRY_ORG\/$APP_NAME/" ./charts/$REPO_NAME/values.yaml
+            sed -i -e "s/tag:.*/tag: $VERSION/" ./charts/$REPO_NAME/values.yaml;
+            else echo no charts; fi
+
+            jx-changelog changelog --batch-mode --version v${VERSION}
+
+            git commit -a -m "release $VERSION" --allow-empty
+            git tag -fa v$VERSION -m "Release version $VERSION"
+            git push origin v$VERSION
+        - image: gcr.io/jenkinsxio/jx-boot:3.0.755
           name: promote-helm-release
           resources: {}
           script: |
-            #!/usr/bin/env bash
+            #!/usr/bin/env sh
             jx gitops helm release
-        - image: gcr.io/jenkinsxio/jx-cli:latest
+        - image: gcr.io/jenkinsxio/jx-promote:0.0.145
           name: promote-jx-promote
           resources: {}
           script: |
-            #!/bin/bash
+            #!/usr/bin/env sh
             source /workspace/source/.jx/variables.sh
             jx promote -b --all-auto --timeout 1h --no-poll
         volumes:
-        - emptyDir: {}
-          name: workspace-volume
-        - downwardAPI:
-            items:
-            - fieldRef:
-                fieldPath: metadata.labels
-              path: labels
-          name: podinfo
+        - name: npmrc
+          secret:
+            secretName: npmrc
+            optional: true
   podTemplate: {}
   serviceAccountName: tekton-bot
   timeout: 240h0m0s
