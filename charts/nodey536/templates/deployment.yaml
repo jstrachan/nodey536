@@ -25,11 +25,20 @@ spec:
 {{ toYaml .Values.podAnnotations | indent 8 }}
 {{- end }}
     spec:
+{{- if .Values.serviceAccount.enabled }}
+{{- if .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+{{- else }}
+      serviceAccountName: {{ template "fullname" . }}
+{{- end }}
+{{- end }}
       containers:
       - name: {{ .Chart.Name }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         env:
+        - name: VERSION
+          value: {{ .Chart.Version }}
 {{- range $pkey, $pval := .Values.env }}
         - name: {{ $pkey }}
           value: {{ quote $pval }}
@@ -40,7 +49,7 @@ spec:
         - containerPort: {{ .Values.service.internalPort }}
         livenessProbe:
           httpGet:
-            path: {{ .Values.probePath }}
+            path: {{ .Values.livenessProbe.probePath | default .Values.probePath }}
             port: {{ .Values.service.internalPort }}
           initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
           periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
@@ -48,7 +57,7 @@ spec:
           timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
         readinessProbe:
           httpGet:
-            path: {{ .Values.probePath }}
+            path: {{ .Values.readinessProbe.probePath | default .Values.probePath }}
             port: {{ .Values.service.internalPort }}
           periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
           successThreshold: {{ .Values.readinessProbe.successThreshold }}
@@ -56,8 +65,8 @@ spec:
         resources:
 {{ toYaml .Values.resources | indent 12 }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-{{- end }}
       imagePullSecrets:
 {{- range $pval := .Values.jx.imagePullSecrets }}
       - name: {{ quote $pval }}
+{{- end }}
 {{- end }}
