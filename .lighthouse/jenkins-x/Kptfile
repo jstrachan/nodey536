@@ -6,6 +6,6 @@ upstream:
   type: git
   git:
     commit: d23a5665b29b9afdfe1d0296d10f6eafe15f01a5
-    repo: https://github.com/jenkins-x/jx3-pipeline-catalog
+    repo: https://github.com/jstrachan/jx3-pipeline-catalog
     directory: /packs/javascript/.lighthouse/jenkins-x
     ref: master
